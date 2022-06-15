@@ -39,3 +39,6 @@ out/*
 
 # doxygen
 Documents/doxygen/*
+CMakeSettings.json
+CMakePresets.json
+include/renderer/VulkanRendererConfig.hpp

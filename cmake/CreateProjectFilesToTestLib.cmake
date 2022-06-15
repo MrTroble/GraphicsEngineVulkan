@@ -51,6 +51,8 @@ target_link_libraries(PROJECT_FILES_TO_TEST   PRIVATE ${CMAKE_DL_LIBS}
                                                       tinyobjloader
                                                       vma
                                                       ktx
+                                                      tinygltf
+                                                      
 )
 
 target_link_libraries(PROJECT_FILES_TO_TEST   PRIVATE GSL)

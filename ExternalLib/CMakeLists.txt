@@ -31,4 +31,9 @@ target_include_directories(ktx  SYSTEM
                                 INTERFACE    
                                 KTX/include KTX/other_include/KHR)
 
+add_library(tinygltf INTERFACE)
+target_include_directories(tinygltf  SYSTEM
+                                     INTERFACE    
+                                     TINY_GLTF)
+
 add_subdirectory(GLFW)

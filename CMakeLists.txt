@@ -165,6 +165,7 @@ target_link_libraries(${PROJECT_NAME}   PUBLIC  ${CMAKE_DL_LIBS}
                                                 stb
                                                 glm
                                                 tinyobjloader
+                                                tinygltf
                                                 vma
                                                 ktx
                                                 # enable compiler warnings
