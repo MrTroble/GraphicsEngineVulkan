@@ -1,7 +1,7 @@
 #include "GLTFLoader.hpp"
 
 #include <tiny_gltf.h>
-
+#include <gsl/gsl>
 #include <MemoryHelper.hpp>
 
 constexpr auto POSITION = "POSITION";
@@ -48,28 +48,27 @@ std::shared_ptr<Model> GLTFLoader::loadModel(
   }
 
   if (!error.empty()) {
-    std::cerr << "TinyGLTF: " << error;
-    exit(EXIT_FAILURE);  // IDK if this is any good
+    std::cerr << "GLTF:" << error;
   }
   if (!warning.empty()) {
-    std::cout << "TinyGLTF: " << warning << std::endl;
+    std::cout << "GLTF: " << warning << std::endl;
   }
   if (!check) {
-    std::cerr << "TinyGLTF: Error!";
+    std::cerr << "GLTF: Error!";
     return nullptr;
   }
 
   const auto sceneID = tglModel.defaultScene < 0 ? tglModel.scenes.size() - 1
                                                  : tglModel.defaultScene;
-  DEBUG_CHECK(sceneID < 0, "TinyGLTF: No scenes in this model!",
+  DEBUG_CHECK(sceneID < 0, "GLTF: No scenes in this model!",
               return nullptr);
   const auto scene = tglModel.scenes[sceneID];
   DEBUG_CHECK(scene.nodes.empty(),
-              "TinyGLTF: No nodes in Scene[" << scene.name << "]!");
+              "GLTF: No nodes in Scene[" << scene.name << "]!");
 
 #pragma region buffer
-  std::vector<VkBuffer> bufferCreateInfos;
-  bufferCreateInfos.reserve(tglModel.buffers.size());
+  std::vector<VkBuffer> stagingbuffer;
+  stagingbuffer.reserve(tglModel.buffers.size());
 
   VkMemoryAllocateInfo allocateInfo{};
   allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -77,6 +76,11 @@ std::shared_ptr<Model> GLTFLoader::loadModel(
   uint32_t typeBit{};
   std::vector<size_t> bufferOffsets;
   bufferOffsets.reserve(tglModel.buffers.size());
+  std::vector<size_t> bufferSizes;
+  bufferSizes.reserve(tglModel.buffers.size());
+
+  auto vkdevice = device->getLogicalDevice();
+
   for (const auto &buffer : tglModel.buffers) {
     VkBufferCreateInfo bufferCreateInfo{};
     bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -84,28 +88,46 @@ std::shared_ptr<Model> GLTFLoader::loadModel(
     bufferCreateInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     bufferCreateInfo.size = buffer.data.size();
 
-    auto vkdevice = device->getLogicalDevice();
-
     VkBuffer vkbuffer;
-    vkCreateBuffer(vkdevice, &bufferCreateInfo, nullptr, &vkbuffer);
-    bufferCreateInfos.push_back(vkbuffer);
+    const auto bufferResult = vkCreateBuffer(vkdevice, &bufferCreateInfo, nullptr, &vkbuffer);
+    ASSERT_VULKAN(bufferResult, "GLTF: Could not create staging buffer in")
+    stagingbuffer.push_back(vkbuffer);
 
     VkMemoryRequirements requirements;
     vkGetBufferMemoryRequirements(vkdevice, vkbuffer, &requirements);
     typeBit = requirements.memoryTypeBits;
-    bufferOffsets.push_back(allocateInfo.allocationSize); 
-    requirements.size + requirements.size % requirements.alignment;
+    bufferOffsets.push_back(allocateInfo.allocationSize);
+    allocateInfo.allocationSize +=
+        requirements.size + requirements.size % requirements.alignment;
+    bufferSizes.push_back(requirements.size);
   }
   allocateInfo.memoryTypeIndex =
       find_memory_type_index(device->getPhysicalDevice(), typeBit,
                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+  VkDeviceMemory stagingMemory; // use alloc
+  const auto allocResult = vkAllocateMemory(vkdevice, &allocateInfo, nullptr, &stagingMemory);
+  ASSERT_VULKAN(allocResult, "GLTF: Allocation failed!")
+
+  for (gsl::index i = 0; i < stagingbuffer.size(); i++) {
+    const auto bindResult = vkBindBufferMemory(vkdevice, stagingbuffer[i],
+                                               stagingMemory, bufferOffsets[i]);
+    ASSERT_VULKAN(bindResult, "GLTF: Binding memory failed");
+    void *memory;
+    const auto mapResult = vkMapMemory(
+        vkdevice, stagingMemory, bufferOffsets[i], bufferSizes[i], 0, &memory);
+    ASSERT_VULKAN(mapResult, "GLTF: Mapping memory failed!")
+    const auto &dataArray = tglModel.buffers[i].data;
+    memcpy(memory, dataArray.data(), dataArray.size());
+    vkUnmapMemory(vkdevice, stagingMemory);
+  }
+
 
 #pragma endregion
 
 #pragma region node parsing
   for (const auto nodeID : scene.nodes) {
     DEBUG_CHECK(nodeID < 0,
-                "TinyGLTF: Invalid node id in Scene[" << scene.name << "]!",
+                "GLTF: Invalid node id in Scene[" << scene.name << "]!",
                 continue);
     const auto &node = tglModel.nodes[nodeID];
     if (node.mesh < 0) {
@@ -118,14 +140,14 @@ std::shared_ptr<Model> GLTFLoader::loadModel(
       const auto positionItr = primitiv.attributes.find(POSITION);
       if (positionItr != primitivEnd) {
         const auto accessorID = positionItr->second;
-        DEBUG_CHECK(acessorID < 0, "TinyGLTF: Invalid accessor in primitv!",
+        DEBUG_CHECK(acessorID < 0, "GLTF: Invalid accessor in primitv!",
                     return nullptr);
         const auto &accessor = tglModel.accessors[accessorID];
       }
       const auto colorItr = primitiv.attributes.find(COLOR);
       if (colorItr != primitivEnd) {
         const auto accessorID = colorItr->second;
-        DEBUG_CHECK(acessorID < 0, "TinyGLTF: Invalid accessor in primitv!",
+        DEBUG_CHECK(acessorID < 0, "GLTF: Invalid accessor in primitv!",
                     return nullptr);
         const auto &accessor = tglModel.accessors[accessorID];
       }
