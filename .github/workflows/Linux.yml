@@ -8,7 +8,7 @@ on:
 
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
-  BUILD_TYPE: Release
+  BUILD_TYPE: Debug
 
 jobs:
   build:
@@ -29,6 +29,8 @@ jobs:
         sudo apt install vulkan-sdk
     - name: Install GLFW dependencies
       run: sudo apt-get install libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libglu1-mesa-dev freeglut3-dev mesa-common-dev
+    - name: Install Code Coverage dependencies
+      run: sudo apt-get install -y gcovr
     - name: Configure CMake
       # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
       # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
@@ -43,3 +45,14 @@ jobs:
       # Execute tests defined by the CMake configuration.  
       # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
       run: ctest -C ${{env.BUILD_TYPE}}
+    - name: Build Code Coverage 
+      run: make coverage_xml -C ${{github.workspace}}/build/
+    - name: Codecov
+      uses: codecov/codecov-action@v3.1.0
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
+        files: coverage_xml.xml # optional
+        #flags: unittests # optional
+        name: codecov-umbrella # optional
+        fail_ci_if_error: false # optional (default = false)
+        verbose: false # optional (default = false)
